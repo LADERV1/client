@@ -17,8 +17,8 @@ import { useState } from "react"
 
 interface PredictionResultProps {
   prediction: {
-    prediction: string
-    probability: number
+    prediction: string // "positive" | "negative"
+    probability: number | null | undefined
     message: string
     features?: Record<string, number>
   }
@@ -27,7 +27,11 @@ interface PredictionResultProps {
 
 export default function PredictionResult({ prediction, language }: PredictionResultProps) {
   const isPositive = prediction.prediction === "positive"
-  const probabilityPercentage = Math.round(prediction.probability * 100)
+  // Safely handle NaN, null or undefined probabilities
+  const probabilityPercentage =
+    typeof prediction.probability === "number" && !isNaN(prediction.probability)
+      ? Math.round(prediction.probability * 100)
+      : "N/A"
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
 
   const translations = {
@@ -178,10 +182,12 @@ export default function PredictionResult({ prediction, language }: PredictionRes
           <div>
             <div className="flex justify-between mb-1">
               <span className="text-sm font-medium">{t.confidence}</span>
-              <span className="text-sm font-medium">{probabilityPercentage}%</span>
+              <span className="text-sm font-medium">
+                {probabilityPercentage !== "N/A" ? `${probabilityPercentage}%` : "N/A"}
+              </span>
             </div>
             <Progress
-              value={probabilityPercentage}
+              value={typeof probabilityPercentage === "number" ? probabilityPercentage : 0}
               className={`h-2 ${isPositive ? "bg-red-100" : "bg-green-100"}`}
               indicatorClassName={isPositive ? "bg-red-500" : "bg-green-500"}
             />

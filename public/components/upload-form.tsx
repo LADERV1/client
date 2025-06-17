@@ -10,12 +10,28 @@ import { Label } from "@/components/ui/label"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { FEATURE_NAMES } from "@/lib/audio-features" // Import FEATURE_NAMES
 
 interface UploadFormProps {
   onSubmit: () => void
   onResult: (result: any) => void
   language: "en" | "fr"
+}
+
+const FEATURE_NAMES = [
+  "MDVP:Fo(Hz)", "MDVP:Fhi(Hz)", "MDVP:Flo(Hz)", "MDVP:Jitter(%)", "MDVP:Jitter(Abs)",
+  "MDVP:RAP", "MDVP:PPQ", "Jitter:DDP", "MDVP:Shimmer", "MDVP:Shimmer(dB)",
+  "Shimmer:APQ3", "Shimmer:APQ5", "MDVP:APQ", "Shimmer:DDA", "NHR", "HNR",
+  "RPDE", "DFA", "spread1", "spread2", "D2", "PPE"
+]
+
+// Do NOT clamp or normalize here, just map array to object.
+function featuresArrayToObject(array: number[] | undefined): Record<string, number> {
+  if (!Array.isArray(array)) return {};
+  const obj: Record<string, number> = {};
+  FEATURE_NAMES.forEach((key, idx) => {
+    obj[key] = typeof array[idx] === "number" ? array[idx] : 0;
+  });
+  return obj;
 }
 
 export default function UploadForm({ onSubmit, onResult, language }: UploadFormProps) {
@@ -50,7 +66,7 @@ export default function UploadForm({ onSubmit, onResult, language }: UploadFormP
       recordingTime: "Recording time:",
       seconds: "seconds",
       recordingPermissionError: "Microphone permission denied. Please allow access to record audio.",
-      uploadingFile: "Analyzing audio...",
+      uploadingFile: "Uploading file...",
     },
     fr: {
       dropzone: {
@@ -70,7 +86,7 @@ export default function UploadForm({ onSubmit, onResult, language }: UploadFormP
       seconds: "secondes",
       recordingPermissionError:
         "Permission du microphone refusée. Veuillez autoriser l'accès pour enregistrer l'audio.",
-      uploadingFile: "Analyse de l'audio...",
+      uploadingFile: "Téléchargement du fichier...",
     },
   }
 
@@ -115,8 +131,8 @@ export default function UploadForm({ onSubmit, onResult, language }: UploadFormP
       recordingIntervalRef.current = setInterval(() => {
         seconds++
         setRecordingTime(seconds)
-        // Auto-stop after 30 seconds
-        if (seconds >= 30 && recorder && recorder.state === "recording") {
+        // Auto-stop after 10 seconds
+        if (seconds >= 10 && recorder && recorder.state === "recording") {
           stopRecording()
         }
       }, 1000)
@@ -188,59 +204,36 @@ export default function UploadForm({ onSubmit, onResult, language }: UploadFormP
 
     try {
       // Simulate upload progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval)
-            return prev
-          }
-          return prev + 10
-        })
-      }, 200)
+      let progress = 0
+      const interval = setInterval(() => {
+        progress += 7
+        setUploadProgress(progress)
+        if (progress >= 100) clearInterval(interval)
+      }, 60)
 
-      // Call the API route with the audio file
+      // Call your Next.js API route that proxies to Flask backend
       const response = await fetch("/api/analyze-audio", {
         method: "POST",
-        body: formData, // Send FormData
+        body: formData,
       })
 
-      clearInterval(progressInterval)
-      setUploadProgress(100)
+      clearInterval(interval)
+      setIsUploading(false)
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Analysis failed")
+        const errData = await response.json().catch(() => ({}))
+        alert(errData.error || t.apiError)
+        onResult(null)
+        return
       }
 
       const result = await response.json()
-
-      // Reformat the features array from the API response back into an object
-      // for the FeatureVisualization component, which expects Record<string, number>
-      const formattedFeatures: Record<string, number> = {}
-      if (result.features_used_for_prediction && Array.isArray(result.features_used_for_prediction)) {
-        FEATURE_NAMES.forEach((name, index) => {
-          formattedFeatures[name] = result.features_used_for_prediction[index]
-        })
-      }
-
-      setTimeout(() => {
-        setIsUploading(false)
-        const mappedResult = {
-          prediction: result.prediction, // Directly use prediction string ("positive" or "negative")
-          probability: result.probability, // Use probability as confidence
-          message: result.message,
-          features: formattedFeatures, // Pass the formatted object
-        }
-        onResult(mappedResult)
-      }, 500)
+      // Always ensure features is an object!
+      result.features = featuresArrayToObject(result.features)
+      onResult(result)
     } catch (error) {
-      console.error("Error:", error)
       setIsUploading(false)
-      alert(
-        language === "en"
-          ? `An error occurred during analysis: ${error instanceof Error ? error.message : String(error)}`
-          : `Une erreur s'est produite lors de l'analyse: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      alert(t.apiError)
       onResult(null)
     }
   }
